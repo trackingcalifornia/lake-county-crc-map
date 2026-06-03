@@ -1,0 +1,16 @@
+body {
+  font-family: Arial, sans-serif;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem 2rem;
+}
+
+h1.title {
+  font-size: 1.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.leaflet-container {
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}

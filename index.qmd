@@ -1,0 +1,107 @@
+---
+title: "Lake County COAD Community Resilience Centers"
+format:
+  html:
+    embed-resources: true
+    toc: false
+    theme: flatly
+    css: styles.css
+---
+
+This map shows community resilience centers in Lake County that are part of the
+[Community Organizations Active in Disaster (COAD)](https://www.lakecountycoad.org)
+network. These sites provide shelter, cooling, and resources during extreme heat
+events and other emergencies.
+
+For county emergency preparedness resources, visit the
+[Lake County Office of Climate Resiliency](https://www.lakecountyca.gov/1436/Office-of-Climate-Resiliency).
+
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+library(leaflet)
+library(readr)
+library(dplyr)
+library(htmltools)
+
+sites <- read_csv("sites.csv")
+
+# Status colors
+status_colors <- c(
+  "Active" = "#27ae60",
+  "Setup"  = "#e67e22"
+)
+
+status_labels <- c(
+  "Active" = "Active — open during events",
+  "Setup"  = "Setup — not yet accepting residents"
+)
+
+# Build popup HTML for each site
+make_popup <- function(name, status, address, phone, website, facebook, hours, services, notes) {
+  lines <- paste0("<b style='font-size:14px;'>", name, "</b><br>")
+  lines <- paste0(lines,
+    "<span style='color:", status_colors[status], ";font-weight:bold;'>",
+    status_labels[status], "</span><br><br>"
+  )
+  lines <- paste0(lines, address, "<br>")
+  if (!is.na(phone) && phone != "")
+    lines <- paste0(lines, "&#128222; <a href='tel:", phone, "'>", phone, "</a><br>")
+  if (!is.na(website) && website != "")
+    lines <- paste0(lines, "&#127760; <a href='", website, "' target='_blank'>Website</a><br>")
+  if (!is.na(facebook) && facebook != "")
+    lines <- paste0(lines, "&#128100; <a href='", facebook, "' target='_blank'>Facebook</a><br>")
+  if (!is.na(hours) && hours != "")
+    lines <- paste0(lines, "<br><b>Hours:</b> ", hours, "<br>")
+  if (!is.na(services) && services != "")
+    lines <- paste0(lines, "<b>Services:</b> ", services, "<br>")
+  if (!is.na(notes) && notes != "")
+    lines <- paste0(lines, "<br><i>", notes, "</i>")
+  lines
+}
+
+sites <- sites %>%
+  rowwise() %>%
+  mutate(popup = make_popup(name, status, address, phone, website,
+                            facebook, hours, services, notes)) %>%
+  ungroup()
+
+leaflet(sites) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = -122.85, lat = 38.98, zoom = 10) %>%
+  addCircleMarkers(
+    lng        = ~lng,
+    lat        = ~lat,
+    radius     = 11,
+    color      = ~status_colors[status],
+    fillColor  = ~status_colors[status],
+    fillOpacity = 0.85,
+    weight     = 2,
+    stroke     = TRUE,
+    popup      = ~popup,
+    label      = ~name,
+    labelOptions = labelOptions(
+      style     = list("font-weight" = "bold", "font-size" = "13px"),
+      direction = "top",
+      offset    = c(0, -12)
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    colors   = unname(status_colors),
+    labels   = unname(status_labels),
+    title    = "Site Status",
+    opacity  = 0.9
+  )
+```
+
+---
+
+*Map maintained by [Tracking California](https://trackingcalifornia.org) in
+partnership with Lake County COAD and the Lake County Office of Climate Resiliency.
+To report updates or corrections, contact
+[scarlet.sandsbliss@trackingcalifornia.org](mailto:scarlet.sandsbliss@trackingcalifornia.org).*
