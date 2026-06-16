@@ -7,47 +7,43 @@ County Office of Climate Resiliency.
 
 ## How to update site information
 
-Open `sites.csv` (or the shared Google Sheet if one has been set up).
-Each row is one site. Columns:
+Edit `sites.csv`. Each row is one site. Key columns:
 
 | Column | Description |
 |---|---|
 | `name` | Site name |
 | `address` | Full street address |
-| `lat` | Latitude (decimal degrees — look up on Google Maps if adding a new site) |
+| `lat` | Latitude (decimal degrees — right-click in Google Maps to copy) |
 | `lng` | Longitude (decimal degrees — will be negative for California) |
 | `status` | `Active` or `Setup` |
 | `phone` | Phone number |
 | `website` | Full URL including https:// |
-| `facebook` | Full Facebook URL |
-| `hours` | Operating hours during events (optional) |
-| `services` | Brief description of services offered (optional) |
-| `notes` | Any additional notes shown in the popup (optional) |
+| `services` | Pipe-separated: `cooling\|warming\|overnight` |
+| `power` | Pipe-separated: `generator\|solar\|battery\|electric` |
+| `pets` | Short pet policy text |
+| `capacity` | Max occupancy number (optional) |
+| `notes` | Additional notes shown in popup (optional) |
+| `coords_approx` | `true` if coordinates are estimated; shows a warning in popup |
 
-**Note:** Site coordinates are approximate and should be verified.
-To find exact coordinates: open Google Maps, right-click the location,
-and copy the lat/lng shown at the top of the menu.
+Survey response workbooks in `source/` are the source data for site entries.
+
+**Note:** Coordinates flagged `coords_approx=true` should be verified before the site goes live. Right-click the address in Google Maps and copy the lat/lng.
 
 ## How to rebuild and publish the map
 
-1. Open RStudio and set your working directory to this folder.
-2. Make sure these R packages are installed:
-   ```r
-   install.packages(c("leaflet", "readr", "dplyr", "htmltools"))
+1. Edit `sites.csv` to add, remove, or update sites.
+2. Run the build script (Python 3 stdlib only — no extra packages):
    ```
-3. Render the map:
-   ```r
-   quarto::quarto_render("index.qmd")
+   python3 build_map.py
    ```
-   Or click **Render** in RStudio with `index.qmd` open.
-4. The updated map will be saved to `docs/index.html`.
-5. Commit and push:
+3. The updated map is written to `docs/index.html`.
+4. Commit and push:
    ```
    git add docs/index.html sites.csv
    git commit -m "Update map"
    git push
    ```
-6. The live site updates within ~1 minute at:
+5. The live site updates within ~1 minute at:
    `https://trackingcalifornia.github.io/lake-county-crc-map`
 
 ## Embedding on another website
