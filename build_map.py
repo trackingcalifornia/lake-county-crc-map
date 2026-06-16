@@ -110,7 +110,7 @@ TEMPLATE = '''<!DOCTYPE html>
 
     /* Title panel */
     .map-title { background: white; padding: 12px 16px; border-radius: 4px;
-                 box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px; }
+                 box-shadow: 0 1px 5px rgba(0,0,0,0.3); width: 280px; }
     .map-title h1 { font-size: 17px; font-weight: 700; color: #1a1a1a;
                     line-height: 1.3; margin: 0; }
     .map-title .instructions { display: flex; align-items: flex-start; gap: 8px;
@@ -121,7 +121,7 @@ TEMPLATE = '''<!DOCTYPE html>
 
     /* Site list panel */
     .site-list { background: white; border-radius: 4px;
-                 box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px; overflow: hidden; }
+                 box-shadow: 0 1px 5px rgba(0,0,0,0.3); width: 280px; overflow: hidden; }
     .site-list-header { font-size: 10px; font-weight: 700; color: #666;
                         padding: 7px 12px 5px; border-bottom: 1px solid #eee;
                         text-transform: uppercase; letter-spacing: 0.06em; }
@@ -142,6 +142,9 @@ TEMPLATE = '''<!DOCTYPE html>
                          margin-bottom: 9px; }
     .partnership-logos { display: flex; align-items: center; justify-content: center; gap: 14px; }
     .partnership-logos img { height: 48px; width: auto; }
+    .partnership-btn { display: inline-block; margin-top: 10px; background: #2563eb; color: white;
+                       font-size: 11px; font-weight: 600; padding: 5px 14px; border-radius: 12px;
+                       letter-spacing: 0.02em; }
 
     /* Popups */
     .leaflet-popup-content { margin: 10px 14px; min-width: 240px; max-width: 300px; }
@@ -232,7 +235,8 @@ var PartnershipControl = L.Control.extend({
       + '<div class="partnership-logos">'
       + '<img src="CHARM_LOGO_URI_HERE" alt="CHARM Lake County"/>'
       + '<img src="HEATWISE_LOGO_URI_HERE" alt="HEATwise"/>'
-      + '</div>';
+      + '</div>'
+      + '<div class="partnership-btn">Learn more &#8599;</div>';
     L.DomEvent.disableClickPropagation(a);
     return a;
   }
