@@ -97,9 +97,13 @@ TEMPLATE = '''<!DOCTYPE html>
     #map { width: 100%; height: 100vh; }
     .map-title { background: white; padding: 12px 16px; border-radius: 4px;
                  box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px; }
-    .map-title h1 { font-size: 14px; font-weight: 700; color: #1a1a1a;
+    .map-title h1 { font-size: 17px; font-weight: 700; color: #1a1a1a;
                     line-height: 1.3; margin: 0; }
-    .map-title p { font-size: 11px; color: #555; margin: 5px 0 0; line-height: 1.4; }
+    .map-title .instructions { display: flex; align-items: flex-start; gap: 8px;
+                    background: #eef4ff; border-left: 3px solid #2563eb;
+                    border-radius: 4px; padding: 7px 9px; margin: 8px 0 0; }
+    .map-title .instructions-icon { font-size: 15px; flex-shrink: 0; line-height: 1.4; }
+    .map-title .instructions p { font-size: 13px; color: #1e3a6e; margin: 0; line-height: 1.5; }
     .leaflet-popup-content { margin: 10px 14px; min-width: 240px; max-width: 300px; }
     .popup-inner { font-size: 13px; }
     .popup-name { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
@@ -133,7 +137,7 @@ TEMPLATE = '''<!DOCTYPE html>
 <div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-var map = L.map('map').setView([39.00, -122.82], 10);
+var map = L.map('map').setView([39.10, -122.82], 10);
 
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
@@ -158,7 +162,7 @@ var TitleControl = L.Control.extend({
     var div = L.DomUtil.create('div', 'map-title');
     div.innerHTML = '<img src="LOGO_DATA_URI_HERE" style="width:72px;height:auto;display:block;margin:0 auto 8px;">'
       + '<h1>Lake County Community Resilience Centers</h1>'
-      + '<p>Click a marker to see center details. For current hours and availability, contact the center or visit their website.</p>';
+      + '<div class="instructions"><span class="instructions-icon">&#128205;</span><p>Click a marker to see center details. For current hours and availability, contact the center or visit their website.</p></div>';
     L.DomEvent.disableClickPropagation(div);
     return div;
   }
