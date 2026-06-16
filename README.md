@@ -68,6 +68,10 @@ Paste this HTML wherever you want the map to appear:
 4. Branch: `main` / folder: `/docs`
 5. Save
 
+## License
+
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — Copyright 2026 Tracking California (Public Health Institute). You may share and adapt this work for any purpose with attribution.
+
 ## Contact
 
 Scarlet Sands-Bliss — scarlet.sandsbliss@trackingcalifornia.org
