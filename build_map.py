@@ -37,7 +37,8 @@ def build_popup(row):
     pets = row["pets"].strip()
     capacity = row["capacity"].strip()
     notes = row["notes"].strip()
-    approx = row["coords_approx"].strip().lower() == "true"
+    feeding = row.get("feeding", "").strip()
+    road_access = row.get("road_access", "").strip()
 
     status_cls = "active" if status == "Active" else "setup"
     status_label = "Active Resilience Center" if status == "Active" else "In Setup — Not Yet Active"
@@ -48,7 +49,6 @@ def build_popup(row):
     parts.append('<div class="popup-status ' + status_cls + '">' + status_label + '</div>')
     parts.append('<div class="popup-addr">' + address + '</div>')
 
-    # Contact line
     contact_parts = []
     if phone:
         digits = phone_digits(phone)
@@ -58,7 +58,6 @@ def build_popup(row):
     if contact_parts:
         parts.append('<div class="popup-contact">' + ' &nbsp; '.join(contact_parts) + '</div>')
 
-    # Tags
     tags = []
     for s in services:
         if s in SVC_LABELS:
@@ -76,8 +75,21 @@ def build_popup(row):
     if notes:
         parts.append('<div class="popup-notes">' + notes + '</div>')
 
-    if approx:
-        parts.append('<div class="popup-approx">&#9888; Location is approximate — verify address before visiting.</div>')
+    if feeding:
+        parts.append(
+            '<div class="popup-section">'
+            '<div class="popup-section-label">&#127860;&nbsp;Feeding capacity</div>'
+            '<div class="popup-section-text">' + feeding + '</div>'
+            '</div>'
+        )
+
+    if road_access:
+        parts.append(
+            '<div class="popup-section">'
+            '<div class="popup-section-label">&#128663;&nbsp;Road access</div>'
+            '<div class="popup-section-text">' + road_access + '</div>'
+            '</div>'
+        )
 
     parts.append('<div class="popup-avail">Hours and availability are confirmed at the time of each event. Check the center’s website or social media for current status.</div>')
     parts.append('</div>')
@@ -95,6 +107,8 @@ TEMPLATE = '''<!DOCTYPE html>
   <style>
     html, body { height: 100%; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
     #map { width: 100%; height: 100vh; }
+
+    /* Title panel */
     .map-title { background: white; padding: 12px 16px; border-radius: 4px;
                  box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px; }
     .map-title h1 { font-size: 17px; font-weight: 700; color: #1a1a1a;
@@ -104,6 +118,32 @@ TEMPLATE = '''<!DOCTYPE html>
                     border-radius: 4px; padding: 7px 9px; margin: 8px 0 0; }
     .map-title .instructions-icon { font-size: 15px; flex-shrink: 0; line-height: 1.4; }
     .map-title .instructions p { font-size: 13px; color: #1e3a6e; margin: 0; line-height: 1.5; }
+
+    /* Site list panel */
+    .site-list { background: white; border-radius: 4px;
+                 box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px; overflow: hidden; }
+    .site-list-header { font-size: 10px; font-weight: 700; color: #666;
+                        padding: 7px 12px 5px; border-bottom: 1px solid #eee;
+                        text-transform: uppercase; letter-spacing: 0.06em; }
+    .site-list-inner { max-height: 260px; overflow-y: auto; }
+    .site-list-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+                      cursor: pointer; font-size: 12px; color: #1a1a1a;
+                      border-bottom: 1px solid #f0f0f0; line-height: 1.3; }
+    .site-list-item:hover { background: #f0f6ff; }
+    .site-list-item:last-child { border-bottom: none; }
+    .site-list-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Partnership panel */
+    .partnership-panel { background: white; padding: 11px 16px 13px; border-radius: 4px;
+                         box-shadow: 0 1px 5px rgba(0,0,0,0.3); max-width: 280px;
+                         text-align: center; display: block; text-decoration: none; }
+    .partnership-panel:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
+    .partnership-label { font-size: 11px; color: #555; font-weight: 600;
+                         margin-bottom: 9px; }
+    .partnership-logos { display: flex; align-items: center; justify-content: center; gap: 14px; }
+    .partnership-logos img { height: 48px; width: auto; }
+
+    /* Popups */
     .leaflet-popup-content { margin: 10px 14px; min-width: 240px; max-width: 300px; }
     .popup-inner { font-size: 13px; }
     .popup-name { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
@@ -122,9 +162,13 @@ TEMPLATE = '''<!DOCTYPE html>
     .tag.pet { background: #f0fdf4; color: #166534; }
     .tag.cap { background: #f3f4f6; color: #374151; }
     .popup-notes { font-size: 11px; color: #555; margin-bottom: 6px; line-height: 1.4; }
-    .popup-approx { font-size: 11px; color: #b45309; margin-bottom: 6px; }
+    .popup-section { margin-bottom: 6px; }
+    .popup-section-label { font-size: 11px; font-weight: 600; color: #374151; margin-bottom: 2px; }
+    .popup-section-text { font-size: 11px; color: #555; line-height: 1.4; }
     .popup-avail { font-size: 10px; color: #888; border-top: 1px solid #eee;
                    padding-top: 6px; margin-top: 6px; line-height: 1.4; font-style: italic; }
+
+    /* Legend */
     .legend { background: white; padding: 10px 14px; border-radius: 4px;
               box-shadow: 0 1px 5px rgba(0,0,0,0.3); font-size: 12px; }
     .legend-title { font-weight: 700; margin-bottom: 6px; color: #1a1a1a; }
@@ -145,14 +189,8 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 20
 }).addTo(map);
 
-// Lake County boundary
 L.geoJSON(COUNTY_GEOJSON_HERE, {
-  style: {
-    color: '#555',
-    weight: 2,
-    dashArray: '6 4',
-    fillOpacity: 0
-  }
+  style: { color: '#555', weight: 2, dashArray: '6 4', fillOpacity: 0 }
 }).addTo(map);
 
 // Title control
@@ -169,6 +207,38 @@ var TitleControl = L.Control.extend({
 });
 new TitleControl().addTo(map);
 
+// Site list control
+var SiteListControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd: function() {
+    var div = L.DomUtil.create('div', 'site-list');
+    div.innerHTML = '<div class="site-list-header">All Centers</div>'
+      + '<div class="site-list-inner" id="site-list-inner"></div>';
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  }
+});
+new SiteListControl().addTo(map);
+
+// Partnership panel — top right
+var PartnershipControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd: function() {
+    var a = L.DomUtil.create('a', 'partnership-panel');
+    a.href = 'https://trackingcalifornia.org/projects/charm/roadmap#gsc.tab=0';
+    a.target = '_blank';
+    a.innerHTML = '<div class="partnership-label">In partnership with</div>'
+      + '<div class="partnership-logos">'
+      + '<img src="CHARM_LOGO_URI_HERE" alt="CHARM Lake County"/>'
+      + '<img src="HEATWISE_LOGO_URI_HERE" alt="HEATwise"/>'
+      + '</div>';
+    L.DomEvent.disableClickPropagation(a);
+    return a;
+  }
+});
+new PartnershipControl().addTo(map);
+
 // Legend control
 var LegendControl = L.Control.extend({
   options: { position: 'bottomright' },
@@ -182,7 +252,6 @@ var LegendControl = L.Control.extend({
 });
 new LegendControl().addTo(map);
 
-// Attribution
 map.attributionControl.setPrefix(
   'Built and maintained by <a href="https://trackingcalifornia.org" target="_blank">Tracking California</a>'
   + ' in partnership with Lake County COAD'
@@ -201,10 +270,26 @@ function makeIcon(status) {
 }
 
 var SITES = SITES_DATA_HERE;
+var markerMap = {};
 SITES.forEach(function(s) {
-  L.marker([s.lat, s.lng], {icon: makeIcon(s.status)})
+  var m = L.marker([s.lat, s.lng], {icon: makeIcon(s.status)})
     .bindPopup(s.popup, {maxWidth: 320})
     .addTo(map);
+  markerMap[s.name] = m;
+});
+
+// Populate site list
+var listEl = document.getElementById('site-list-inner');
+SITES.forEach(function(s) {
+  var item = document.createElement('div');
+  item.className = 'site-list-item';
+  var color = s.status === 'Active' ? '#27ae60' : '#e67e22';
+  item.innerHTML = '<div class="site-list-dot" style="background:' + color + ';"></div><span>' + s.name + '</span>';
+  item.onclick = function() {
+    var m = markerMap[s.name];
+    if (m) { map.setView(m.getLatLng(), 13); m.openPopup(); }
+  };
+  listEl.appendChild(item);
 });
 </script>
 </body>
@@ -233,15 +318,30 @@ def main():
     with open(geojson_path, encoding="utf-8") as f:
         county_geojson = f.read().strip()
 
+    # COAD logo
     logo_path = os.path.join(base, "docs", "lakecountycoad_logo.png")
     with open(logo_path, "rb") as f:
         logo_b64 = base64.b64encode(f.read()).decode("ascii")
-    logo_data_uri = f"data:image/png;base64,{logo_b64}"
+    logo_data_uri = "data:image/png;base64," + logo_b64
+
+    # CHARM logo
+    charm_path = os.path.join(base, "docs", "charm_logo.png")
+    with open(charm_path, "rb") as f:
+        charm_b64 = base64.b64encode(f.read()).decode("ascii")
+    charm_data_uri = "data:image/png;base64," + charm_b64
+
+    # HEATwise logo (SVG)
+    hw_path = os.path.join(base, "docs", "heatwise_logo.svg")
+    with open(hw_path, "rb") as f:
+        hw_b64 = base64.b64encode(f.read()).decode("ascii")
+    hw_data_uri = "data:image/svg+xml;base64," + hw_b64
 
     sites_json = json.dumps(sites, ensure_ascii=False)
     html = TEMPLATE.replace("SITES_DATA_HERE", sites_json)
     html = html.replace("COUNTY_GEOJSON_HERE", county_geojson)
     html = html.replace("LOGO_DATA_URI_HERE", logo_data_uri)
+    html = html.replace("CHARM_LOGO_URI_HERE", charm_data_uri)
+    html = html.replace("HEATWISE_LOGO_URI_HERE", hw_data_uri)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
