@@ -142,7 +142,7 @@ TEMPLATE = '''<!DOCTYPE html>
                          margin-bottom: 9px; }
     .partnership-logos { display: flex; align-items: center; justify-content: center; gap: 14px; }
     .partnership-logos img { height: 56px; width: auto; }
-    .partnership-btn { display: inline-block; margin-top: 10px; background: #2563eb; color: white;
+    .partnership-btn { display: inline-block; margin-top: 10px; background: #1a3460; color: white;
                        font-size: 11px; font-weight: 600; padding: 5px 14px; border-radius: 12px;
                        letter-spacing: 0.02em; }
 
@@ -183,7 +183,7 @@ TEMPLATE = '''<!DOCTYPE html>
     #drawer-btn {
       display: none;
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 1001;
-      background: #1d4ed8; color: white; border: none;
+      background: #1a3460; color: white; border: none;
       padding: 14px 16px; padding-bottom: max(14px, env(safe-area-inset-bottom));
       font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
       text-align: center; cursor: pointer;
@@ -227,14 +227,32 @@ TEMPLATE = '''<!DOCTYPE html>
       .partnership-panel      { padding: 7px 10px 8px; max-width: 160px; }
       .partnership-label      { display: none; }
       .partnership-logos img  { height: 36px; }
-      .partnership-btn        { display: none; }
+      .partnership-btn        { font-size: 10px; padding: 3px 10px; margin-top: 6px; }
       #drawer-btn             { display: block; }
       #mobile-drawer          { display: block; }
+
+      /* Collapsed title when popup is open */
+      .map-title.collapsed    { width: auto !important; padding: 5px 8px !important; }
+      .map-title.collapsed h1 { display: none; }
+      .map-title.collapsed img { width: 38px !important; margin: 0 auto !important; }
     }
   </style>
 </head>
 <body>
 <div id="map"></div>
+<button id="drawer-btn" onclick="openDrawer()">&#9776;&nbsp; All Centers &amp; Info</button>
+<div id="mobile-drawer">
+  <div class="drawer-handle"></div>
+  <div class="drawer-header">
+    <span class="drawer-title">Resilience Centers</span>
+    <button class="drawer-close" onclick="closeDrawer()">&#10005;</button>
+  </div>
+  <div class="drawer-instructions">
+    Tap a marker on the map to see center details. For current hours and availability, contact the center or visit their website.
+  </div>
+  <div class="drawer-list-header">All Centers</div>
+  <div id="drawer-list"></div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var map = L.map('map').setView([39.00, -122.72], 9);
@@ -330,7 +348,7 @@ var SITES = SITES_DATA_HERE;
 var markerMap = {};
 SITES.forEach(function(s) {
   var m = L.marker([s.lat, s.lng], {icon: makeIcon(s.status)})
-    .bindPopup(s.popup, {maxWidth: 320})
+    .bindPopup(s.popup, {maxWidth: 320, autoPan: false})
     .addTo(map);
   markerMap[s.name] = m;
 });
@@ -347,6 +365,23 @@ SITES.forEach(function(s) {
     if (m) { map.setView(m.getLatLng(), 13); m.openPopup(); }
   };
   listEl.appendChild(item);
+});
+
+// ── Collapse title on mobile when popup opens ──────────────────────────────
+map.on('popupopen', function(e) {
+  if (window.innerWidth <= 640) {
+    var t = document.querySelector('.map-title');
+    if (t) t.classList.add('collapsed');
+  }
+  var markerPx   = map.latLngToContainerPoint(e.popup.getLatLng());
+  var popupH     = e.popup._container ? e.popup._container.offsetHeight : 220;
+  var popupCtrY  = markerPx.y - 38 - popupH / 2;
+  var screenCtrY = map.getSize().y / 2;
+  map.panBy([0, popupCtrY - screenCtrY], {animate: true, duration: 0.3});
+});
+map.on('popupclose', function() {
+  var t = document.querySelector('.map-title');
+  if (t) t.classList.remove('collapsed');
 });
 
 // ── Mobile drawer ──────────────────────────────────────────────────────────
@@ -367,19 +402,6 @@ SITES.forEach(function(s) {
   drawerList.appendChild(item);
 });
 </script>
-<button id="drawer-btn" onclick="openDrawer()">&#9776;&nbsp; All Centers &amp; Info</button>
-<div id="mobile-drawer">
-  <div class="drawer-handle"></div>
-  <div class="drawer-header">
-    <span class="drawer-title">Resilience Centers</span>
-    <button class="drawer-close" onclick="closeDrawer()">&#10005;</button>
-  </div>
-  <div class="drawer-instructions">
-    Tap a marker on the map to see center details. For current hours and availability, contact the center or visit their website.
-  </div>
-  <div class="drawer-list-header">All Centers</div>
-  <div id="drawer-list"></div>
-</div>
 </body>
 </html>'''
 
