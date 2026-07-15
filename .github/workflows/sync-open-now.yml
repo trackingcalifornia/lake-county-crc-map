@@ -1,0 +1,37 @@
+name: Sync Open Now status
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync open_now from Google Sheet
+        id: sync
+        run: python3 sync_open_now.py
+
+      - name: Rebuild map if sites.csv changed
+        run: |
+          if ! git diff --quiet -- sites.csv; then
+            python3 build_map.py
+          fi
+
+      - name: Commit and push if anything changed
+        run: |
+          if ! git diff --quiet -- sites.csv docs/index.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add sites.csv docs/index.html
+            git commit -m "Sync open_now status from Google Sheet"
+            git push
+          else
+            echo "No changes to commit."
+          fi
