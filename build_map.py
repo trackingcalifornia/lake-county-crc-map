@@ -49,7 +49,7 @@ def build_popup(row):
     parts.append('<div class="popup-name">' + name + '</div>')
     parts.append('<div class="popup-status ' + status_cls + '">' + status_label + '</div>')
     if open_now:
-        parts.append('<div class="popup-status open-now">&#128308;&nbsp;Open Now</div>')
+        parts.append('<div class="popup-status open-now">&#128993;&nbsp;Open Now</div>')
     parts.append('<div class="popup-addr">' + address + '</div>')
 
     contact_parts = []
@@ -136,7 +136,7 @@ TEMPLATE = '''<!DOCTYPE html>
     .site-list-item:last-child { border-bottom: none; }
     .site-list-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .open-now-toggle-row { display: flex; align-items: center; gap: 8px; padding: 11px 12px;
-                          border-top: 1px solid #eee; font-size: 14px; font-weight: 700; color: #b91c1c; }
+                          border-top: 1px solid #eee; font-size: 14px; font-weight: 700; color: #b45309; }
     .open-now-toggle-row label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
     .open-now-toggle-row input[type="checkbox"] { cursor: pointer; width: 19px; height: 19px; flex-shrink: 0; }
     .open-now-empty { padding: 12px; font-size: 12px; color: #888; font-style: italic; text-align: center; }
@@ -161,8 +161,8 @@ TEMPLATE = '''<!DOCTYPE html>
     .popup-status { display: inline-block; font-size: 11px; font-weight: 600;
                     padding: 2px 8px; border-radius: 10px; margin-bottom: 8px; }
     .popup-status.active { background: #d4f4dd; color: #1a6b2e; }
-    .popup-status.setup  { background: #fde8cc; color: #8a4a00; }
-    .popup-status.open-now { background: #fdeaea; color: #b91c1c; margin-left: 6px; }
+    .popup-status.setup  { background: #e5e7eb; color: #4b5563; }
+    .popup-status.open-now { background: #fef3c7; color: #b45309; margin-left: 6px; }
     .popup-addr { font-size: 12px; color: #444; margin-bottom: 6px; }
     .popup-contact { margin-bottom: 8px; }
     .popup-link { font-size: 12px; color: #2563eb; text-decoration: none; }
@@ -261,7 +261,7 @@ TEMPLATE = '''<!DOCTYPE html>
   </div>
   <div class="drawer-list-header">All Centers</div>
   <div id="drawer-list"></div>
-  <div class="open-now-toggle-row"><label><input type="checkbox" id="open-now-toggle-mobile"> Show only centers open now</label></div>
+  <div class="open-now-toggle-row"><label><input type="checkbox" id="open-now-toggle-mobile"> Only show centers open now</label></div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -298,7 +298,7 @@ var SiteListControl = L.Control.extend({
     var div = L.DomUtil.create('div', 'site-list');
     div.innerHTML = '<div class="site-list-header">All Centers</div>'
       + '<div class="site-list-inner" id="site-list-inner"></div>'
-      + '<div class="open-now-toggle-row"><label><input type="checkbox" id="open-now-toggle"> Show only centers open now</label></div>';
+      + '<div class="open-now-toggle-row"><label><input type="checkbox" id="open-now-toggle"> Only show centers open now</label></div>';
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
     return div;
@@ -332,8 +332,8 @@ var LegendControl = L.Control.extend({
     var div = L.DomUtil.create('div', 'legend');
     div.innerHTML = '<div class="legend-title">Site Status</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#27ae60;"></div> Active</div>'
-      + '<div class="legend-item"><div class="legend-dot" style="background:#e67e22;"></div> In Setup</div>'
-      + '<div class="legend-item"><div class="legend-dot" style="background:#27ae60;box-shadow:0 0 0 3px #fdeaea, 0 0 0 4px #b91c1c;"></div> Open Now</div>';
+      + '<div class="legend-item"><div class="legend-dot" style="background:#9e9e9e;"></div> In Setup</div>'
+      + '<div class="legend-item"><div class="legend-dot" style="background:#27ae60;box-shadow:0 0 0 2px white, 0 0 0 6px #f59e0b;"></div> Open Now</div>';
     return div;
   }
 });
@@ -345,8 +345,8 @@ map.attributionControl.setPrefix(
 );
 
 function makeIcon(status, openNow) {
-  var color = status === 'Active' ? '#27ae60' : '#e67e22';
-  var ring = openNow ? '<circle cx="14" cy="14" r="11" fill="none" stroke="#b91c1c" stroke-width="2.5"/>' : '';
+  var color = status === 'Active' ? '#27ae60' : '#9e9e9e';
+  var ring = openNow ? '<circle cx="14" cy="14" r="11.3" fill="none" stroke="#f59e0b" stroke-width="4.5"/>' : '';
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38">'
     + '<path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="' + color + '"/>'
     + ring
@@ -373,7 +373,7 @@ SITES.forEach(function(s) {
   var item = document.createElement('div');
   item.className = 'site-list-item';
   item.dataset.openNow = s.open_now ? '1' : '0';
-  var color = s.status === 'Active' ? '#27ae60' : '#e67e22';
+  var color = s.status === 'Active' ? '#27ae60' : '#9e9e9e';
   item.innerHTML = '<div class="site-list-dot" style="background:' + color + ';"></div><span>' + s.name + '</span>';
   item.onclick = function() {
     var m = markerMap[s.name];
@@ -444,7 +444,7 @@ SITES.forEach(function(s) {
   var item = document.createElement('div');
   item.className = 'drawer-item';
   item.dataset.openNow = s.open_now ? '1' : '0';
-  var color = s.status === 'Active' ? '#27ae60' : '#e67e22';
+  var color = s.status === 'Active' ? '#27ae60' : '#9e9e9e';
   item.innerHTML = '<div class="drawer-dot" style="background:' + color + ';"></div><span>' + s.name + '</span>';
   item.onclick = function() {
     closeDrawer();
