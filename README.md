@@ -46,6 +46,53 @@ Survey response workbooks in `source/` are the source data for site entries.
 5. The live site updates within ~1 minute at:
    `https://trackingcalifornia.github.io/lake-county-crc-map`
 
+## Automated "Open Now" sync
+
+`open_now` is kept in sync automatically from a published Google Sheet (name +
+open_now columns), via `.github/workflows/sync-open-now.yml`. That workflow
+runs on a 15-minute cron, calls `sync_open_now.py` to pull the sheet and
+update `sites.csv`, rebuilds `docs/index.html` if anything changed, and
+commits/pushes both files. Partners editing the sheet don't need to touch
+this repo. In practice GitHub does not always run the schedule exactly every
+15 minutes on low-traffic repos — allow up to a couple of hours before
+treating it as broken.
+
+## Troubleshooting: map not reflecting a change
+
+1. **Rule out caching.** Hard-refresh (Cmd+Shift+R) or open the site in a
+   private window.
+2. **Check the sheet.** Confirm the site's `name` in the sheet matches
+   `sites.csv` exactly — the sync silently skips unmatched names (logged as a
+   warning in the workflow run, not shown anywhere else).
+3. **Check the workflow ran:**
+   ```
+   gh run list --workflow=sync-open-now.yml --limit 5
+   ```
+   If the latest run failed, view why with `gh run view <run-id> --log-failed`.
+   If it hasn't run recently, force one: `gh workflow run sync-open-now.yml`
+4. **Check the commit landed on `main`:**
+   ```
+   git fetch origin
+   git show origin/main:sites.csv | grep "<site name>"
+   ```
+   If the value here is already correct, the sync worked and the problem is
+   downstream in GitHub Pages (step 5), not the sync.
+5. **Check the Pages build status:**
+   ```
+   gh api repos/trackingcalifornia/lake-county-crc-map/pages/builds/latest --jq '{status, created_at, updated_at}'
+   ```
+   Normal builds finish in 20-30 seconds. If it's sat in `"building"` for more
+   than a couple of minutes, check `https://www.githubstatus.com` for a GitHub
+   Pages incident before assuming it's this repo — a GitHub-side outage can
+   stall builds with nothing wrong on our end.
+6. **Kick a fresh build** (only useful if GitHub Pages itself isn't degraded):
+   ```
+   gh api -X POST repos/trackingcalifornia/lake-county-crc-map/pages/builds
+   ```
+7. **Fallback:** if the automated path stays broken, the manual update path
+   above always works as a bypass — a normal human push tends to unstick a
+   misbehaving deploy even when bot-triggered ones don't.
+
 ## Embedding on another website
 
 Paste this HTML wherever you want the map to appear:
