@@ -478,6 +478,8 @@ def main():
                 "open_now": row.get("open_now", "").strip().lower() == "true",
             })
 
+    sites.sort(key=lambda s: s["name"].lower())
+
     with open(geojson_path, encoding="utf-8") as f:
         county_geojson = f.read().strip()
 
