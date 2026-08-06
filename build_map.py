@@ -10,6 +10,51 @@ import json
 import os
 import re
 
+# Matches what a Time-formatted Google Sheets cell exports as, e.g. "9:00am",
+# "9:00:00 AM", "09:00", "16:30" -- seconds and am/pm are both optional so
+# this tolerates whichever exact custom format ends up applied in the sheet.
+HOUR_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?$")
+
+
+def parse_hour_label(raw):
+    """Parse a sheet-normalized time string into a compact label like '9am'
+    or '4:30pm'. Returns None if it doesn't match -- callers should fall back
+    to showing the raw text rather than guessing at something unrecognized."""
+    s = raw.strip().lower()
+    if not s:
+        return None
+    if s == "noon":
+        return "12pm"
+    if s == "midnight":
+        return "12am"
+    m = HOUR_RE.match(s)
+    if not m:
+        return None
+    hour, minute, _second, ampm = int(m.group(1)), m.group(2), m.group(3), m.group(4)
+    if ampm:
+        if not (1 <= hour <= 12):
+            return None
+        return str(hour) + (":" + minute if minute and minute != "00" else "") + ampm
+    if minute is None:
+        return None  # bare hour with no am/pm and no minutes is ambiguous
+    if not (0 <= hour <= 23):
+        return None
+    h12 = hour % 12 or 12
+    suffix = "am" if hour < 12 else "pm"
+    return str(h12) + (":" + minute if minute != "00" else "") + suffix
+
+
+def format_hours_range(opens_raw, closes_raw):
+    """Return a display string like '9am–4pm' for the open-now banner, or
+    None if there isn't enough usable info to show a range."""
+    opens_raw, closes_raw = opens_raw.strip(), closes_raw.strip()
+    if not opens_raw or not closes_raw:
+        return None
+    opens_label = parse_hour_label(opens_raw) or opens_raw
+    closes_label = parse_hour_label(closes_raw) or closes_raw
+    return opens_label + "–" + closes_label
+
+
 SVC_LABELS = {
     "cooling":  '<span class="tag svc">&#10052; Cooling center</span>',
     "warming":  '<span class="tag svc">&#9832; Warming center</span>',
@@ -40,6 +85,9 @@ def build_popup(row):
     feeding = row.get("feeding", "").strip()
     road_access = row.get("road_access", "").strip()
     open_now = row.get("open_now", "").strip().lower() == "true"
+    opens_at = row.get("opens_at", "").strip()
+    closes_at = row.get("closes_at", "").strip()
+    hours_label = format_hours_range(opens_at, closes_at) if open_now else None
 
     status_cls = "active" if status == "Active" else "setup"
     status_label = "Active Resilience Center" if status == "Active" else "In Setup — Not Yet Active"
@@ -49,7 +97,10 @@ def build_popup(row):
     parts.append('<div class="popup-name">' + name + '</div>')
     parts.append('<div class="popup-status ' + status_cls + '">' + status_label + '</div>')
     if open_now:
-        parts.append('<div class="popup-status open-now">&#128993;&nbsp;Open Now</div>')
+        open_now_html = '&#128993;&nbsp;Open Now'
+        if hours_label:
+            open_now_html += ' &middot; ' + hours_label
+        parts.append('<div class="popup-status open-now">' + open_now_html + '</div>')
     parts.append('<div class="popup-addr">' + address + '</div>')
 
     contact_parts = []
@@ -257,7 +308,7 @@ TEMPLATE = '''<!DOCTYPE html>
     <button class="drawer-close" onclick="closeDrawer()">&#10005;</button>
   </div>
   <div class="drawer-instructions">
-    Tap a marker on the map to see center details. For current hours and availability, contact the center or visit their website.
+    Tap a marker on the map to see center details. For the most up to date hours and availability, contact the center or visit their website.
   </div>
   <div class="drawer-list-header">All Centers</div>
   <div id="drawer-list"></div>
@@ -284,7 +335,7 @@ var TitleControl = L.Control.extend({
     var div = L.DomUtil.create('div', 'map-title');
     div.innerHTML = '<img src="LOGO_DATA_URI_HERE" style="width:72px;height:auto;display:block;margin:0 auto 8px;">'
       + '<h1>Lake County Community Resilience Centers</h1>'
-      + '<div class="instructions"><span class="instructions-icon">&#128205;</span><p>Click a marker to see center details. For current hours and availability, contact the center or visit their website.</p></div>';
+      + '<div class="instructions"><span class="instructions-icon">&#128205;</span><p>Click a marker to see center details. For the most up to date hours and availability, contact the center or visit their website.</p></div>';
     L.DomEvent.disableClickPropagation(div);
     return div;
   }
