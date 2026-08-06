@@ -24,8 +24,23 @@ Edit `sites.csv`. Each row is one site. Key columns:
 | `capacity` | Max occupancy number (optional) |
 | `notes` | Additional notes shown in popup (optional) |
 | `coords_approx` | `true` if coordinates are estimated; shows a warning in popup |
+| `open_now` | `true`/`false` — synced from a published Google Sheet, see below |
+| `opens_at` / `closes_at` | Free text like `9am` or `4:00pm` — synced from the same sheet; shown as an hours range on the "Open Now" banner when both are present |
 
 Survey response workbooks in `source/` are the source data for site entries.
+
+## Open Now / hours sync
+
+`open_now`, `opens_at`, and `closes_at` are pulled automatically from a
+published Google Sheet by `sync_open_now.py` (see `.github/workflows/`).
+The sheet's `opens_at`/`closes_at` columns should be formatted as **Time**
+(Format → Number → Time, or a custom format like `h:mm am/pm`) with data
+validation set to "Is valid time" — this is what lets someone type `9am`
+into the cell and have it normalize automatically, rather than relying on
+free-text parsing to guess at whatever they typed. `build_map.py` parses
+whatever the Time format exports (it tolerates variations like with/without
+seconds or a space before am/pm) and falls back to showing the raw text if
+it doesn't recognize the format, rather than dropping it silently.
 
 **Note:** Coordinates flagged `coords_approx=true` should be verified before the site goes live. Right-click the address in Google Maps and copy the lat/lng.
 
