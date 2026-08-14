@@ -15,7 +15,7 @@ Edit `sites.csv`. Each row is one site. Key columns:
 | `address` | Full street address |
 | `lat` | Latitude (decimal degrees — right-click in Google Maps to copy) |
 | `lng` | Longitude (decimal degrees — will be negative for California) |
-| `status` | `Active` or `Setup` |
+| `status` | `Active` or `Setup` — internal value only. Displays on the live map as "Ready" (orange marker) or "In Setup" (gray marker); "Active" is not shown to visitors. |
 | `phone` | Phone number |
 | `website` | Full URL including https:// |
 | `services` | Pipe-separated: `cooling\|warming\|overnight` |
@@ -24,23 +24,33 @@ Edit `sites.csv`. Each row is one site. Key columns:
 | `capacity` | Max occupancy number (optional) |
 | `notes` | Additional notes shown in popup (optional) |
 | `coords_approx` | `true` if coordinates are estimated; shows a warning in popup |
-| `open_now` | `true`/`false` — synced from a published Google Sheet, see below |
-| `opens_at` / `closes_at` | Free text like `9am` or `4:00pm` — synced from the same sheet; shown as an hours range on the "Open Now" banner when both are present |
+| `date` | The date this site is scheduled to activate, e.g. `2026-08-20` or `8/20/2026` — synced from a published Google Sheet, see below. Blank means not currently scheduled. |
+| `opens_at` / `closes_at` | Free text like `9am` or `4:00pm` — synced from the same sheet. Drives both the displayed hours range and the automatic "Open Now" on/off below. |
 
 Survey response workbooks in `source/` are the source data for site entries.
 
-## Open Now / hours sync
+## Automatic "Open Now" status
 
-`open_now`, `opens_at`, and `closes_at` are pulled automatically from a
+A site shows as "Open Now" (green ring around its marker) automatically,
+the moment Pacific time enters the window defined by its `date` +
+`opens_at`/`closes_at`, and automatically turns back off when `closes_at`
+passes — computed live in each visitor's browser, not by a server or a
+rebuild. To activate a site for a heat event, set its `date`, `opens_at`,
+and `closes_at` in the Google Sheet (see below); to deactivate it afterward,
+clear the `date` field back out so it doesn't imply the same window applies
+again next time.
+
+`date`, `opens_at`, and `closes_at` are pulled automatically from a
 published Google Sheet by `sync_open_now.py` (see `.github/workflows/`).
-The sheet's `opens_at`/`closes_at` columns should be formatted as **Time**
-(Format → Number → Time, or a custom format like `h:mm am/pm`) with data
-validation set to "Is valid time" — this is what lets someone type `9am`
-into the cell and have it normalize automatically, rather than relying on
-free-text parsing to guess at whatever they typed. `build_map.py` parses
-whatever the Time format exports (it tolerates variations like with/without
-seconds or a space before am/pm) and falls back to showing the raw text if
-it doesn't recognize the format, rather than dropping it silently.
+The sheet's `date` column should be formatted as **Date** and `opens_at`/
+`closes_at` as **Time** (Format → Number → Date or Time, or a custom format
+like `h:mm am/pm`) with data validation set to "Is valid date"/"Is valid
+time" — this is what lets someone type `8/20/2026` or `9am` into a cell and
+have it normalize automatically, rather than relying on free-text parsing to
+guess at whatever they typed. `build_map.py` parses whatever the Date/Time
+format exports (it tolerates ISO or US date order, and time with/without
+seconds or a space before am/pm) and treats the site as not scheduled if it
+doesn't recognize the format, rather than guessing.
 
 **Note:** Coordinates flagged `coords_approx=true` should be verified before the site goes live. Right-click the address in Google Maps and copy the lat/lng.
 
@@ -61,16 +71,22 @@ it doesn't recognize the format, rather than dropping it silently.
 5. The live site updates within ~1 minute at:
    `https://trackingcalifornia.github.io/lake-county-crc-map`
 
-## Automated "Open Now" sync
+## Automated sheet sync
 
-`open_now` is kept in sync automatically from a published Google Sheet (name +
-open_now columns), via `.github/workflows/sync-open-now.yml`. That workflow
-runs on a 15-minute cron, calls `sync_open_now.py` to pull the sheet and
-update `sites.csv`, rebuilds `docs/index.html` if anything changed, and
-commits/pushes both files. Partners editing the sheet don't need to touch
-this repo. In practice GitHub does not always run the schedule exactly every
-15 minutes on low-traffic repos — allow up to a couple of hours before
-treating it as broken.
+The `date`/`opens_at`/`closes_at` schedule is kept in sync automatically from
+a published Google Sheet (name + those three columns), via
+`.github/workflows/sync-open-now.yml`. That workflow runs on a 15-minute
+cron, calls `sync_open_now.py` to pull the sheet and update `sites.csv`,
+rebuilds `docs/index.html` if anything changed, and commits/pushes both
+files. Partners editing the sheet don't need to touch this repo. In practice
+GitHub does not always run the schedule exactly every 15 minutes on
+low-traffic repos — allow up to a couple of hours before treating it as
+broken.
+
+This cron only needs to run often enough to pick up a newly entered or
+changed schedule — the actual on/off flip for "Open Now" does not depend on
+it (see above); that happens live in the visitor's browser regardless of
+when this workflow last ran.
 
 ## Troubleshooting: map not reflecting a change
 

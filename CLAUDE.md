@@ -29,11 +29,39 @@ already "Active," because the HTML hadn't been regenerated.)
 ## Automated sync
 
 `.github/workflows/sync-open-now.yml` runs `sync_open_now.py` on a 15-minute
-cron to pull `open_now`/`opens_at`/`closes_at` from a published Google Sheet,
+cron to pull `date`/`opens_at`/`closes_at` from a published Google Sheet,
 rebuilds `docs/index.html` if `sites.csv` changed, and commits/pushes both.
 GitHub does not reliably honor the 15-minute schedule on low-traffic repos -
 allow a couple of hours before treating it as broken. Full troubleshooting
 steps (workflow logs, Pages build status, manual bypass) are in the README.
+
+## "Open Now" is computed client-side, not server-side (added 2026-08-14)
+
+There is no manual `open_now` toggle anymore. COAD (Terre/Dan) requested
+fully automatic activation tied to heat events, which have no recurring
+schedule, so each site's `date` + `opens_at`/`closes_at` in the sheet defines
+a one-off activation window. The actual on/off decision is computed live in
+each visitor's browser (`getPacificNow()`/`isOpenNow()`/`refreshOpenNow()` in
+`build_map.py`'s JS template), explicitly in Pacific time via
+`Intl.DateTimeFormat`, re-checked every 60 seconds - not baked into
+`docs/index.html` at build/sync time. This was a deliberate choice over
+computing it server-side in `sync_open_now.py`: a server-side flip would
+still be bounded by the 15-minute (or slower, see incident below) cron
+cadence, which was part of what prompted this change in the first place.
+
+**Naming/color note:** the CSV's internal `status` value is still literally
+`Active`/`Setup` (unchanged, not partner-facing) - only the *displayed*
+label and colors changed: `Active` now renders as "Ready - in Standby" with
+a lighter, more yellow orange (`#fbbf24`, adjusted 2026-08-14 from an
+earlier `#f59e0b`) marker, and "Open Now" is a green (`#27ae60`) ring rather
+than the amber ring it used to be; the "Only show centers open now" toggle
+text is green (`#1a6b2e`) to match. Don't be confused by `status ===
+'Active'` checks still in the code; that's the internal value, not what
+Terre/Dan see on the map.
+
+**Known limitation:** the open/close window assumes same-day hours
+(`opens_at` < `closes_at`); an overnight window spanning midnight isn't
+handled and would need `isOpenNow()` extended if that's ever requested.
 
 ## Known incident: 2026-08-06 GitHub Actions/Pages outage
 

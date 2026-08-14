@@ -15,6 +15,61 @@ import re
 # this tolerates whichever exact custom format ends up applied in the sheet.
 HOUR_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?$")
 
+# Matches what a Date-formatted Google Sheets cell exports as: ISO (2026-08-20)
+# or US (8/20/2026) -- whichever the sheet's date column format ends up using.
+DATE_RE_ISO = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+DATE_RE_US = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+
+
+def parse_date_label(raw):
+    """Normalize a sheet date cell into ISO YYYY-MM-DD, matching the format
+    the browser's Pacific-time clock is compared against. Returns None if
+    unrecognized or blank -- callers should treat the site as not currently
+    scheduled rather than guessing at a malformed date."""
+    s = raw.strip()
+    if not s:
+        return None
+    m = DATE_RE_ISO.match(s)
+    if m:
+        y, mo, d = (int(g) for g in m.groups())
+        return "%04d-%02d-%02d" % (y, mo, d)
+    m = DATE_RE_US.match(s)
+    if m:
+        mo, d, y = (int(g) for g in m.groups())
+        return "%04d-%02d-%02d" % (y, mo, d)
+    return None
+
+
+def parse_hour_to_minutes(raw):
+    """Parse a sheet-normalized time string into minutes since midnight, for
+    comparing against the current time in the browser. Returns None if it
+    doesn't match."""
+    s = raw.strip().lower()
+    if not s:
+        return None
+    if s == "noon":
+        return 12 * 60
+    if s == "midnight":
+        return 0
+    m = HOUR_RE.match(s)
+    if not m:
+        return None
+    hour, minute, _second, ampm = int(m.group(1)), m.group(2), m.group(3), m.group(4)
+    minute = int(minute) if minute else 0
+    if ampm:
+        if not (1 <= hour <= 12):
+            return None
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+        return hour * 60 + minute
+    if m.group(2) is None:
+        return None  # bare hour with no am/pm and no minutes is ambiguous
+    if not (0 <= hour <= 23):
+        return None
+    return hour * 60 + minute
+
 
 def parse_hour_label(raw):
     """Parse a sheet-normalized time string into a compact label like '9am'
@@ -84,23 +139,17 @@ def build_popup(row):
     notes = row["notes"].strip()
     feeding = row.get("feeding", "").strip()
     road_access = row.get("road_access", "").strip()
-    open_now = row.get("open_now", "").strip().lower() == "true"
-    opens_at = row.get("opens_at", "").strip()
-    closes_at = row.get("closes_at", "").strip()
-    hours_label = format_hours_range(opens_at, closes_at) if open_now else None
 
     status_cls = "active" if status == "Active" else "setup"
-    status_label = "Active Resilience Center" if status == "Active" else "In Setup — Not Yet Active"
+    status_label = "Ready - in Standby" if status == "Active" else "In Setup — Not Yet Ready"
 
     parts = []
     parts.append('<div class="popup-inner">')
     parts.append('<div class="popup-name">' + name + '</div>')
     parts.append('<div class="popup-status ' + status_cls + '">' + status_label + '</div>')
-    if open_now:
-        open_now_html = '&#128993;&nbsp;Open Now'
-        if hours_label:
-            open_now_html += ' &middot; ' + hours_label
-        parts.append('<div class="popup-status open-now">' + open_now_html + '</div>')
+    # Filled in client-side by refreshOpenNow() -- whether a site is open now
+    # depends on the live clock, not anything known at build time.
+    parts.append('<!--OPEN_NOW_SLOT-->')
     parts.append('<div class="popup-addr">' + address + '</div>')
 
     contact_parts = []
@@ -187,7 +236,7 @@ TEMPLATE = '''<!DOCTYPE html>
     .site-list-item:last-child { border-bottom: none; }
     .site-list-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .open-now-toggle-row { display: flex; align-items: center; gap: 8px; padding: 11px 12px;
-                          border-top: 1px solid #eee; font-size: 14px; font-weight: 700; color: #b45309; }
+                          border-top: 1px solid #eee; font-size: 14px; font-weight: 700; color: #1a6b2e; }
     .open-now-toggle-row label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
     .open-now-toggle-row input[type="checkbox"] { cursor: pointer; width: 19px; height: 19px; flex-shrink: 0; }
     .open-now-empty { padding: 12px; font-size: 12px; color: #888; font-style: italic; text-align: center; }
@@ -211,9 +260,9 @@ TEMPLATE = '''<!DOCTYPE html>
     .popup-name { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
     .popup-status { display: inline-block; font-size: 11px; font-weight: 600;
                     padding: 2px 8px; border-radius: 10px; margin-bottom: 8px; }
-    .popup-status.active { background: #d4f4dd; color: #1a6b2e; }
+    .popup-status.active { background: #fef3c7; color: #b45309; }
     .popup-status.setup  { background: #e5e7eb; color: #4b5563; }
-    .popup-status.open-now { background: #fef3c7; color: #b45309; margin-left: 6px; }
+    .popup-status.open-now { background: #d4f4dd; color: #1a6b2e; margin-left: 6px; }
     .popup-addr { font-size: 12px; color: #444; margin-bottom: 6px; }
     .popup-contact { margin-bottom: 8px; }
     .popup-link { font-size: 12px; color: #2563eb; text-decoration: none; }
@@ -382,9 +431,9 @@ var LegendControl = L.Control.extend({
   onAdd: function() {
     var div = L.DomUtil.create('div', 'legend');
     div.innerHTML = '<div class="legend-title">Site Status</div>'
-      + '<div class="legend-item"><div class="legend-dot" style="background:#27ae60;"></div> Active</div>'
+      + '<div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div> Ready</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#9e9e9e;"></div> In Setup</div>'
-      + '<div class="legend-item"><div class="legend-dot" style="background:#27ae60;box-shadow:0 0 0 2px white, 0 0 0 6px #f59e0b;"></div> Open Now</div>';
+      + '<div class="legend-item"><div class="legend-dot" style="background:#fbbf24;box-shadow:0 0 0 2px white, 0 0 0 6px #27ae60;"></div> Open Now</div>';
     return div;
   }
 });
@@ -396,8 +445,8 @@ map.attributionControl.setPrefix(
 );
 
 function makeIcon(status, openNow) {
-  var color = status === 'Active' ? '#27ae60' : '#9e9e9e';
-  var ring = openNow ? '<circle cx="14" cy="14" r="11.3" fill="none" stroke="#f59e0b" stroke-width="4.5"/>' : '';
+  var color = status === 'Active' ? '#fbbf24' : '#9e9e9e';
+  var ring = openNow ? '<circle cx="14" cy="14" r="11.3" fill="none" stroke="#27ae60" stroke-width="4.5"/>' : '';
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38">'
     + '<path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="' + color + '"/>'
     + ring
@@ -412,7 +461,7 @@ function makeIcon(status, openNow) {
 var SITES = SITES_DATA_HERE;
 var markerMap = {};
 SITES.forEach(function(s) {
-  var m = L.marker([s.lat, s.lng], {icon: makeIcon(s.status, s.open_now)})
+  var m = L.marker([s.lat, s.lng], {icon: makeIcon(s.status, false)})
     .bindPopup(s.popup, {maxWidth: 320, autoPan: false})
     .addTo(map);
   markerMap[s.name] = m;
@@ -420,17 +469,19 @@ SITES.forEach(function(s) {
 
 // Populate site list
 var listEl = document.getElementById('site-list-inner');
+var siteListItems = {};
 SITES.forEach(function(s) {
   var item = document.createElement('div');
   item.className = 'site-list-item';
-  item.dataset.openNow = s.open_now ? '1' : '0';
-  var color = s.status === 'Active' ? '#27ae60' : '#9e9e9e';
+  item.dataset.openNow = '0';
+  var color = s.status === 'Active' ? '#fbbf24' : '#9e9e9e';
   item.innerHTML = '<div class="site-list-dot" style="background:' + color + ';"></div><span>' + s.name + '</span>';
   item.onclick = function() {
     var m = markerMap[s.name];
     if (m) { map.setView(m.getLatLng(), 13); m.openPopup(); }
   };
   listEl.appendChild(item);
+  siteListItems[s.name] = item;
 });
 
 var openNowEmptyEl = document.createElement('div');
@@ -491,11 +542,12 @@ function openDrawer()  { document.getElementById('mobile-drawer').classList.add(
 function closeDrawer() { document.getElementById('mobile-drawer').classList.remove('open'); }
 
 var drawerList = document.getElementById('drawer-list');
+var drawerItems = {};
 SITES.forEach(function(s) {
   var item = document.createElement('div');
   item.className = 'drawer-item';
-  item.dataset.openNow = s.open_now ? '1' : '0';
-  var color = s.status === 'Active' ? '#27ae60' : '#9e9e9e';
+  item.dataset.openNow = '0';
+  var color = s.status === 'Active' ? '#fbbf24' : '#9e9e9e';
   item.innerHTML = '<div class="drawer-dot" style="background:' + color + ';"></div><span>' + s.name + '</span>';
   item.onclick = function() {
     closeDrawer();
@@ -503,7 +555,58 @@ SITES.forEach(function(s) {
     if (m) { map.setView(m.getLatLng(), 13); m.openPopup(); }
   };
   drawerList.appendChild(item);
+  drawerItems[s.name] = item;
 });
+
+// ── Automatic Open Now (date + hours, computed live in the browser) ────────
+// COAD partners enter a date + opens_at/closes_at in the Google Sheet ahead
+// of a heat event; the map itself flips a site to "Open Now" the moment
+// Pacific time enters that window, and back off when it ends. No one needs
+// to touch GitHub or manually toggle anything.
+function getPacificNow() {
+  var parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  var map = {};
+  parts.forEach(function(p) { map[p.type] = p.value; });
+  var hour = parseInt(map.hour, 10) % 24; // midnight can format as "24" in some browsers
+  return {
+    dateStr: map.year + '-' + map.month + '-' + map.day,
+    minutes: hour * 60 + parseInt(map.minute, 10)
+  };
+}
+
+function isOpenNow(s, pacificNow) {
+  return !!(s.date && s.date === pacificNow.dateStr &&
+            s.opens_min != null && s.closes_min != null &&
+            pacificNow.minutes >= s.opens_min && pacificNow.minutes < s.closes_min);
+}
+
+function openNowBadgeHtml(s) {
+  var html = '&#128993;&nbsp;Open Now';
+  if (s.hours_label) html += ' &middot; ' + s.hours_label;
+  return '<div class="popup-status open-now">' + html + '</div>';
+}
+
+function refreshOpenNow() {
+  var pacificNow = getPacificNow();
+  SITES.forEach(function(s) {
+    var open = isOpenNow(s, pacificNow);
+    s.open_now = open;
+    var m = markerMap[s.name];
+    if (m) {
+      m.setIcon(makeIcon(s.status, open));
+      m.setPopupContent(s.popup.replace('<!--OPEN_NOW_SLOT-->', open ? openNowBadgeHtml(s) : ''));
+    }
+    if (siteListItems[s.name]) siteListItems[s.name].dataset.openNow = open ? '1' : '0';
+    if (drawerItems[s.name]) drawerItems[s.name].dataset.openNow = open ? '1' : '0';
+  });
+  applyOpenNowFilter(document.getElementById('open-now-toggle').checked);
+}
+refreshOpenNow();
+setInterval(refreshOpenNow, 60000);
 </script>
 </body>
 </html>'''
@@ -520,13 +623,18 @@ def main():
         reader = csv.DictReader(f)
         for row in reader:
             popup = build_popup(row)
+            opens_at = row.get("opens_at", "").strip()
+            closes_at = row.get("closes_at", "").strip()
             sites.append({
-                "lat":      float(row["lat"]),
-                "lng":      float(row["lng"]),
-                "status":   row["status"].strip(),
-                "name":     row["name"].strip(),
-                "popup":    popup,
-                "open_now": row.get("open_now", "").strip().lower() == "true",
+                "lat":         float(row["lat"]),
+                "lng":         float(row["lng"]),
+                "status":      row["status"].strip(),
+                "name":        row["name"].strip(),
+                "popup":       popup,
+                "date":        parse_date_label(row.get("date", "").strip()),
+                "opens_min":   parse_hour_to_minutes(opens_at),
+                "closes_min":  parse_hour_to_minutes(closes_at),
+                "hours_label": format_hours_range(opens_at, closes_at),
             })
 
     sites.sort(key=lambda s: s["name"].lower())
