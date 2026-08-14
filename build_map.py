@@ -142,14 +142,16 @@ def build_popup(row):
 
     status_cls = "active" if status == "Active" else "setup"
     status_label = "Ready - in Standby" if status == "Active" else "In Setup — Not Yet Ready"
+    status_badge_html = '<div class="popup-status ' + status_cls + '">' + status_label + '</div>'
 
     parts = []
     parts.append('<div class="popup-inner">')
     parts.append('<div class="popup-name">' + name + '</div>')
-    parts.append('<div class="popup-status ' + status_cls + '">' + status_label + '</div>')
-    # Filled in client-side by refreshOpenNow() -- whether a site is open now
-    # depends on the live clock, not anything known at build time.
-    parts.append('<!--OPEN_NOW_SLOT-->')
+    # STATUS_SLOT and OPEN_NOW_SLOT are filled in client-side by
+    # refreshOpenNow() -- while a site is Open Now, the standby/setup badge
+    # is hidden rather than shown alongside it, since showing both at once
+    # reads as contradictory ("Ready - in Standby" next to "Open Now").
+    parts.append('<!--STATUS_SLOT--><!--OPEN_NOW_SLOT-->')
     parts.append('<div class="popup-addr">' + address + '</div>')
 
     contact_parts = []
@@ -197,7 +199,7 @@ def build_popup(row):
     parts.append('<div class="popup-avail">Hours and availability are confirmed at the time of each event. Check the center’s website or social media for current status.</div>')
     parts.append('</div>')
 
-    return "".join(parts)
+    return "".join(parts), status_badge_html
 
 
 TEMPLATE = '''<!DOCTYPE html>
@@ -219,7 +221,7 @@ TEMPLATE = '''<!DOCTYPE html>
     .map-title .instructions { display: flex; align-items: flex-start; gap: 8px;
                     background: #eef4ff; border-left: 3px solid #2563eb;
                     border-radius: 4px; padding: 7px 9px; margin: 8px 0 0; }
-    .map-title .instructions-icon { font-size: 15px; flex-shrink: 0; line-height: 1.4; }
+    .map-title .instructions-icon { width: 14px; height: 19px; flex-shrink: 0; margin-top: 2px; }
     .map-title .instructions p { font-size: 13px; color: #1e3a6e; margin: 0; line-height: 1.5; }
 
     /* Site list panel */
@@ -384,7 +386,10 @@ var TitleControl = L.Control.extend({
     var div = L.DomUtil.create('div', 'map-title');
     div.innerHTML = '<img src="LOGO_DATA_URI_HERE" style="width:72px;height:auto;display:block;margin:0 auto 8px;">'
       + '<h1>Lake County Community Resilience Centers</h1>'
-      + '<div class="instructions"><span class="instructions-icon">&#128205;</span><p>Click a marker to see center details. For the most up to date hours and availability, contact the center or visit their website.</p></div>';
+      + '<div class="instructions"><svg class="instructions-icon" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">'
+      + '<path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#fbbf24"/>'
+      + '<circle cx="14" cy="14" r="6" fill="white"/></svg>'
+      + '<p>Click a marker to see center details. For the most up to date hours and availability, contact the center or visit their website.</p></div>';
     L.DomEvent.disableClickPropagation(div);
     return div;
   }
@@ -431,7 +436,7 @@ var LegendControl = L.Control.extend({
   onAdd: function() {
     var div = L.DomUtil.create('div', 'legend');
     div.innerHTML = '<div class="legend-title">Site Status</div>'
-      + '<div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div> Ready</div>'
+      + '<div class="legend-item"><div class="legend-dot" style="background:#fbbf24;"></div> Ready - in Standby</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#9e9e9e;"></div> In Setup</div>'
       + '<div class="legend-item"><div class="legend-dot" style="background:#fbbf24;box-shadow:0 0 0 2px white, 0 0 0 6px #27ae60;"></div> Open Now</div>';
     return div;
@@ -585,7 +590,7 @@ function isOpenNow(s, pacificNow) {
 }
 
 function openNowBadgeHtml(s) {
-  var html = '&#128993;&nbsp;Open Now';
+  var html = '&#128994;&nbsp;Open Now';
   if (s.hours_label) html += ' &middot; ' + s.hours_label;
   return '<div class="popup-status open-now">' + html + '</div>';
 }
@@ -598,7 +603,9 @@ function refreshOpenNow() {
     var m = markerMap[s.name];
     if (m) {
       m.setIcon(makeIcon(s.status, open));
-      m.setPopupContent(s.popup.replace('<!--OPEN_NOW_SLOT-->', open ? openNowBadgeHtml(s) : ''));
+      m.setPopupContent(s.popup
+        .replace('<!--STATUS_SLOT-->', open ? '' : s.status_badge)
+        .replace('<!--OPEN_NOW_SLOT-->', open ? openNowBadgeHtml(s) : ''));
     }
     if (siteListItems[s.name]) siteListItems[s.name].dataset.openNow = open ? '1' : '0';
     if (drawerItems[s.name]) drawerItems[s.name].dataset.openNow = open ? '1' : '0';
@@ -622,7 +629,7 @@ def main():
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            popup = build_popup(row)
+            popup, status_badge = build_popup(row)
             opens_at = row.get("opens_at", "").strip()
             closes_at = row.get("closes_at", "").strip()
             sites.append({
@@ -631,6 +638,7 @@ def main():
                 "status":      row["status"].strip(),
                 "name":        row["name"].strip(),
                 "popup":       popup,
+                "status_badge": status_badge,
                 "date":        parse_date_label(row.get("date", "").strip()),
                 "opens_min":   parse_hour_to_minutes(opens_at),
                 "closes_min":  parse_hour_to_minutes(closes_at),
