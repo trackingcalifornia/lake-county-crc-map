@@ -24,33 +24,39 @@ Edit `sites.csv`. Each row is one site. Key columns:
 | `capacity` | Max occupancy number (optional) |
 | `notes` | Additional notes shown in popup (optional) |
 | `coords_approx` | `true` if coordinates are estimated; shows a warning in popup |
-| `date` | The date this site is scheduled to activate, e.g. `2026-08-20` or `8/20/2026` — synced from a published Google Sheet, see below. Blank means not currently scheduled. |
-| `opens_at` / `closes_at` | Free text like `9am` or `4:00pm` — synced from the same sheet. Drives both the displayed hours range and the automatic "Open Now" on/off below. |
+| `date` | First day open, e.g. `2026-08-20` or `8/20/2026`. Synced from the published Google Sheet (see below). Blank means not currently scheduled. |
+| `opens_at` / `closes_at` | Opening and closing time, e.g. `9am` or `4:00:00 PM`. Synced from the same sheet. `12am` as a closing time means midnight at the end of the day. |
+| `last_date` | Last day open. Blank means a single day. Also accepts a raw Sheets date serial (e.g. `46332`) if the column loses its Date format. |
+| `overnight` | `Yes` = open continuously from `opens_at` on the first day to `closes_at` on the last day. Blank or `No` = the hours repeat each day in the range. |
 
 Survey response workbooks in `source/` are the source data for site entries.
 
 ## Automatic "Open Now" status
 
-A site shows as "Open Now" (green ring around its marker) automatically,
-the moment Pacific time enters the window defined by its `date` +
-`opens_at`/`closes_at`, and automatically turns back off when `closes_at`
-passes — computed live in each visitor's browser, not by a server or a
-rebuild. To activate a site for a heat event, set its `date`, `opens_at`,
-and `closes_at` in the Google Sheet (see below); to deactivate it afterward,
-clear the `date` field back out so it doesn't imply the same window applies
-again next time.
+Partners submit a Google Form (first day, optional last day, opening and
+closing time, optional "Open overnight?"). The form feeds the "Form Responses 1"
+tab, and the "DO NOT TOUCH" tab keeps the latest submission per site in the
+columns `name, date, opens_at, closes_at, last_date, overnight`. That tab is
+published to the web as CSV.
 
-`date`, `opens_at`, and `closes_at` are pulled automatically from a
-published Google Sheet by `sync_open_now.py` (see `.github/workflows/`).
-The sheet's `date` column should be formatted as **Date** and `opens_at`/
-`closes_at` as **Time** (Format → Number → Date or Time, or a custom format
-like `h:mm am/pm`) with data validation set to "Is valid date"/"Is valid
-time" — this is what lets someone type `8/20/2026` or `9am` into a cell and
-have it normalize automatically, rather than relying on free-text parsing to
-guess at whatever they typed. `build_map.py` parses whatever the Date/Time
-format exports (it tolerates ISO or US date order, and time with/without
-seconds or a space before am/pm) and treats the site as not scheduled if it
-doesn't recognize the format, rather than guessing.
+The page reads that CSV directly in each visitor's browser when it loads and
+every 5 minutes after (`loadLiveSchedule()` in `build_map.py`). Google
+refreshes the published CSV about every 5 minutes, so a form submission
+reaches the map in roughly 5 to 10 minutes. Open/closed is computed in the
+browser in Pacific time and rechecked every 60 seconds:
+
+| Form entry | Map behavior |
+|---|---|
+| One day, overnight blank/No | Open between opening and closing time that day |
+| First to last day, overnight blank/No | Open between those hours on each day, closed overnight |
+| First to last day, overnight Yes | Open continuously from opening time on the first day to closing time on the last day |
+| Closing time earlier than opening time (e.g. 7pm to 8am) | Treated as overnight; with no last day, closes the next morning |
+| Date and times blank | Not scheduled (this is how partners cancel) |
+
+All date and time parsing lives in the browser (`parseDay()`,
+`parseMinutes()`, `scheduleFor()`), so the live fetch and the baked-in
+fallback use the same rules. Unrecognized values mean "not scheduled" rather
+than a guess.
 
 **Note:** Coordinates flagged `coords_approx=true` should be verified before the site goes live. Right-click the address in Google Maps and copy the lat/lng.
 
@@ -71,27 +77,23 @@ doesn't recognize the format, rather than guessing.
 5. The live site updates within ~1 minute at:
    `https://trackingcalifornia.github.io/lake-county-crc-map`
 
-## Automated sheet sync
+## Automated sheet sync (fallback)
 
-The `date`/`opens_at`/`closes_at` schedule is kept in sync automatically from
-a published Google Sheet (name + those three columns), via
-`.github/workflows/sync-open-now.yml`. That workflow runs on a 15-minute
-cron, calls `sync_open_now.py` to pull the sheet and update `sites.csv`,
-rebuilds `docs/index.html` if anything changed, and commits/pushes both
-files. Partners editing the sheet don't need to touch this repo. In practice
-GitHub does not always run the schedule exactly every 15 minutes on
-low-traffic repos — allow up to a couple of hours before treating it as
-broken.
-
-This cron only needs to run often enough to pick up a newly entered or
-changed schedule — the actual on/off flip for "Open Now" does not depend on
-it (see above); that happens live in the visitor's browser regardless of
-when this workflow last ran.
+`.github/workflows/sync-open-now.yml` runs `sync_open_now.py` on a 15-minute
+cron (in practice GitHub runs it every few hours on this repo), copies the
+schedule columns into `sites.csv`, rebuilds `docs/index.html`, and pushes.
+The map no longer depends on this for timely updates; it keeps the values
+baked into the page current so the map still works if the Google Sheet cannot
+be reached. GitHub disables scheduled workflows after 60 days with no commits;
+re-enable with `gh workflow enable sync-open-now.yml`.
 
 ## Troubleshooting: map not reflecting a change
 
 1. **Rule out caching.** Hard-refresh (Cmd+Shift+R) or open the site in a
-   private window.
+   private window. The page is cached up to 10 minutes and the published
+   Sheet CSV up to 5, so allow about 10 minutes after a form submission.
+   To see what the map is reading, open the published CSV URL
+   (`SHEET_CSV_URL` in `sync_open_now.py`) in a browser.
 2. **Check the sheet.** Confirm the site's `name` in the sheet matches
    `sites.csv` exactly — the sync silently skips unmatched names (logged as a
    warning in the workflow run, not shown anywhere else).

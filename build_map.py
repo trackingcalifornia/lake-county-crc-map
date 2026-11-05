@@ -10,105 +10,7 @@ import json
 import os
 import re
 
-# Matches what a Time-formatted Google Sheets cell exports as, e.g. "9:00am",
-# "9:00:00 AM", "09:00", "16:30" -- seconds and am/pm are both optional so
-# this tolerates whichever exact custom format ends up applied in the sheet.
-HOUR_RE = re.compile(r"^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?$")
-
-# Matches what a Date-formatted Google Sheets cell exports as: ISO (2026-08-20)
-# or US (8/20/2026) -- whichever the sheet's date column format ends up using.
-DATE_RE_ISO = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
-DATE_RE_US = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
-
-
-def parse_date_label(raw):
-    """Normalize a sheet date cell into ISO YYYY-MM-DD, matching the format
-    the browser's Pacific-time clock is compared against. Returns None if
-    unrecognized or blank -- callers should treat the site as not currently
-    scheduled rather than guessing at a malformed date."""
-    s = raw.strip()
-    if not s:
-        return None
-    m = DATE_RE_ISO.match(s)
-    if m:
-        y, mo, d = (int(g) for g in m.groups())
-        return "%04d-%02d-%02d" % (y, mo, d)
-    m = DATE_RE_US.match(s)
-    if m:
-        mo, d, y = (int(g) for g in m.groups())
-        return "%04d-%02d-%02d" % (y, mo, d)
-    return None
-
-
-def parse_hour_to_minutes(raw):
-    """Parse a sheet-normalized time string into minutes since midnight, for
-    comparing against the current time in the browser. Returns None if it
-    doesn't match."""
-    s = raw.strip().lower()
-    if not s:
-        return None
-    if s == "noon":
-        return 12 * 60
-    if s == "midnight":
-        return 0
-    m = HOUR_RE.match(s)
-    if not m:
-        return None
-    hour, minute, _second, ampm = int(m.group(1)), m.group(2), m.group(3), m.group(4)
-    minute = int(minute) if minute else 0
-    if ampm:
-        if not (1 <= hour <= 12):
-            return None
-        if ampm == "pm" and hour != 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        return hour * 60 + minute
-    if m.group(2) is None:
-        return None  # bare hour with no am/pm and no minutes is ambiguous
-    if not (0 <= hour <= 23):
-        return None
-    return hour * 60 + minute
-
-
-def parse_hour_label(raw):
-    """Parse a sheet-normalized time string into a compact label like '9am'
-    or '4:30pm'. Returns None if it doesn't match -- callers should fall back
-    to showing the raw text rather than guessing at something unrecognized."""
-    s = raw.strip().lower()
-    if not s:
-        return None
-    if s == "noon":
-        return "12pm"
-    if s == "midnight":
-        return "12am"
-    m = HOUR_RE.match(s)
-    if not m:
-        return None
-    hour, minute, _second, ampm = int(m.group(1)), m.group(2), m.group(3), m.group(4)
-    if ampm:
-        if not (1 <= hour <= 12):
-            return None
-        return str(hour) + (":" + minute if minute and minute != "00" else "") + ampm
-    if minute is None:
-        return None  # bare hour with no am/pm and no minutes is ambiguous
-    if not (0 <= hour <= 23):
-        return None
-    h12 = hour % 12 or 12
-    suffix = "am" if hour < 12 else "pm"
-    return str(h12) + (":" + minute if minute != "00" else "") + suffix
-
-
-def format_hours_range(opens_raw, closes_raw):
-    """Return a display string like '9am–4pm' for the open-now banner, or
-    None if there isn't enough usable info to show a range."""
-    opens_raw, closes_raw = opens_raw.strip(), closes_raw.strip()
-    if not opens_raw or not closes_raw:
-        return None
-    opens_label = parse_hour_label(opens_raw) or opens_raw
-    closes_label = parse_hour_label(closes_raw) or closes_raw
-    return opens_label + "–" + closes_label
-
+from sync_open_now import SHEET_CSV_URL
 
 SVC_LABELS = {
     "cooling":  '<span class="tag svc">&#10052; Cooling center</span>',
@@ -202,7 +104,7 @@ def build_popup(row):
     return "".join(parts), status_badge_html
 
 
-TEMPLATE = '''<!DOCTYPE html>
+TEMPLATE = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
@@ -464,6 +366,7 @@ function makeIcon(status, openNow) {
 }
 
 var SITES = SITES_DATA_HERE;
+var SHEET_CSV_URL = SHEET_CSV_URL_HERE;
 var markerMap = {};
 SITES.forEach(function(s) {
   var m = L.marker([s.lat, s.lng], {icon: makeIcon(s.status, false)})
@@ -563,11 +466,144 @@ SITES.forEach(function(s) {
   drawerItems[s.name] = item;
 });
 
-// ── Automatic Open Now (date + hours, computed live in the browser) ────────
-// COAD partners enter a date + opens_at/closes_at in the Google Sheet ahead
-// of a heat event; the map itself flips a site to "Open Now" the moment
-// Pacific time enters that window, and back off when it ends. No one needs
-// to touch GitHub or manually toggle anything.
+// ── Automatic Open Now (date range + hours, computed live in the browser) ──
+// COAD partners submit a Google Form (first day, optional last day, opening
+// and closing time, optional "open overnight?"). The page reads the published
+// Sheet directly (loadLiveSchedule) and flips a site to "Open Now" while
+// Pacific time is inside that window. Values baked into SITES at build time
+// are the fallback if the Sheet can't be reached.
+var HOUR_RE = /^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm)?$/;
+
+// Sheet time cell ("9:00:00 AM", "16:30", "noon") -> minutes since midnight, or null.
+function parseMinutes(raw) {
+  var t = (raw || '').trim().toLowerCase();
+  if (!t) return null;
+  if (t === 'noon') return 720;
+  if (t === 'midnight') return 0;
+  var m = t.match(HOUR_RE);
+  if (!m) return null;
+  var hour = parseInt(m[1], 10), minute = m[2] ? parseInt(m[2], 10) : 0, ampm = m[4];
+  if (ampm) {
+    if (hour < 1 || hour > 12) return null;
+    if (ampm === 'pm' && hour !== 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+  } else {
+    if (m[2] === undefined || hour > 23) return null; // bare "9" is ambiguous
+  }
+  return hour * 60 + minute;
+}
+
+// Sheet date cell -> day number (days since 1970-01-01), or null. Accepts
+// 2026-11-05, 11/5/2026, or a raw Sheets serial number (46331) in case the
+// column's Date format ever gets reset.
+function parseDay(raw) {
+  var t = (raw || '').trim(), m;
+  if (!t) return null;
+  if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) return Date.UTC(+m[1], m[2] - 1, +m[3]) / 864e5;
+  if ((m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) return Date.UTC(+m[3], m[1] - 1, +m[2]) / 864e5;
+  if (/^\d{5}$/.test(t)) return parseInt(t, 10) - 25569; // Sheets serial (1899-12-30 epoch)
+  return null;
+}
+
+function minutesLabel(min) {
+  var h = Math.floor(min / 60) % 24, mm = min % 60;
+  return (h % 12 || 12) + (mm ? ':' + (mm < 10 ? '0' : '') + mm : '') + (h < 12 ? 'am' : 'pm');
+}
+
+function dayLabel(day) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric'
+  }).format(new Date(day * 864e5)).replace(',', '');
+}
+
+// One site's activation as absolute minutes, or null if not scheduled.
+//   Daily (overnight blank/No): opens..closes on every day first..last.
+//   Overnight (Yes): open continuously from opens on the first day to closes
+//   on the last day. Hours that run past midnight without "Yes" (e.g. 7pm to
+//   8am) are treated as overnight, since that is the only reading that works.
+//   A closing time of 12am means midnight at the end of the day.
+function scheduleFor(s) {
+  var first = parseDay(s.date), opens = parseMinutes(s.opens_at), closes = parseMinutes(s.closes_at);
+  if (first === null || opens === null || closes === null) return null;
+  var last = parseDay(s.last_date);
+  if (last === null || last < first) last = first;
+  var overnight = /^y/i.test((s.overnight || '').trim());
+  if (!overnight && (closes === 0 ? 1440 : closes) <= opens) overnight = true;
+  if (overnight) {
+    var start = first * 1440 + opens, end = last * 1440 + closes;
+    if (end <= start) end += 1440;
+    return { overnight: true, start: start, end: end };
+  }
+  return { overnight: false, first: first, last: last, opens: opens, closes: closes === 0 ? 1440 : closes };
+}
+
+function isOpenNow(s, pacificNow) {
+  var w = scheduleFor(s);
+  if (!w) return false;
+  var day = parseDay(pacificNow.dateStr), min = pacificNow.minutes;
+  if (w.overnight) {
+    var now = day * 1440 + min;
+    return now >= w.start && now < w.end;
+  }
+  return day >= w.first && day <= w.last && min >= w.opens && min < w.closes;
+}
+
+function hoursLabel(s) {
+  var w = scheduleFor(s);
+  if (!w) return '';
+  if (w.overnight) {
+    var endDay = Math.floor(w.end / 1440), endMin = w.end % 1440;
+    if (endMin === 0) return 'until midnight ' + dayLabel(endDay - 1);
+    return 'until ' + minutesLabel(endMin) + ' ' + dayLabel(endDay);
+  }
+  var range = minutesLabel(w.opens) + '–' + (w.closes === 1440 ? 'midnight' : minutesLabel(w.closes));
+  return w.last > w.first ? range + ' daily through ' + dayLabel(w.last) : range;
+}
+
+// Minimal CSV parser for the published Sheet (handles quoted fields).
+function parseCsv(text) {
+  var rows = [], row = [], field = '', q = false;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') q = false;
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+var SCHEDULE_FIELDS = ['date', 'opens_at', 'closes_at', 'last_date', 'overnight'];
+
+function loadLiveSchedule() {
+  fetch(SHEET_CSV_URL, { cache: 'no-store' })
+    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(function(text) {
+      var rows = parseCsv(text.replace(/^\uFEFF/, ''));
+      var header = rows.shift().map(function(h) { return h.trim(); });
+      var byName = {};
+      rows.forEach(function(r) {
+        var o = {};
+        header.forEach(function(h, i) { o[h] = (r[i] || '').trim(); });
+        if (o.name) byName[o.name] = o;
+      });
+      SITES.forEach(function(s) {
+        var live = byName[s.name];
+        if (!live) return;
+        SCHEDULE_FIELDS.forEach(function(f) { s[f] = live[f] || ''; });
+      });
+      refreshOpenNow();
+    })
+    .catch(function() { /* keep the baked-in values */ });
+}
+
 function getPacificNow() {
   var parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
@@ -583,15 +619,10 @@ function getPacificNow() {
   };
 }
 
-function isOpenNow(s, pacificNow) {
-  return !!(s.date && s.date === pacificNow.dateStr &&
-            s.opens_min != null && s.closes_min != null &&
-            pacificNow.minutes >= s.opens_min && pacificNow.minutes < s.closes_min);
-}
-
 function openNowBadgeHtml(s) {
   var html = '&#128994;&nbsp;Open Now';
-  if (s.hours_label) html += ' &middot; ' + s.hours_label;
+  var label = hoursLabel(s);
+  if (label) html += ' &middot; ' + label;
   return '<div class="popup-status open-now">' + html + '</div>';
 }
 
@@ -614,6 +645,8 @@ function refreshOpenNow() {
 }
 refreshOpenNow();
 setInterval(refreshOpenNow, 60000);
+loadLiveSchedule();
+setInterval(loadLiveSchedule, 5 * 60000);
 </script>
 </body>
 </html>'''
@@ -630,8 +663,6 @@ def main():
         reader = csv.DictReader(f)
         for row in reader:
             popup, status_badge = build_popup(row)
-            opens_at = row.get("opens_at", "").strip()
-            closes_at = row.get("closes_at", "").strip()
             sites.append({
                 "lat":         float(row["lat"]),
                 "lng":         float(row["lng"]),
@@ -639,10 +670,13 @@ def main():
                 "name":        row["name"].strip(),
                 "popup":       popup,
                 "status_badge": status_badge,
-                "date":        parse_date_label(row.get("date", "").strip()),
-                "opens_min":   parse_hour_to_minutes(opens_at),
-                "closes_min":  parse_hour_to_minutes(closes_at),
-                "hours_label": format_hours_range(opens_at, closes_at),
+                # Raw sheet text; parsed in the browser (see scheduleFor()) so the
+                # baked fallback and the live Sheet fetch share one parser.
+                "date":        row.get("date", "").strip(),
+                "opens_at":    row.get("opens_at", "").strip(),
+                "closes_at":   row.get("closes_at", "").strip(),
+                "last_date":   row.get("last_date", "").strip(),
+                "overnight":   row.get("overnight", "").strip(),
             })
 
     sites.sort(key=lambda s: s["name"].lower())
@@ -670,6 +704,7 @@ def main():
 
     sites_json = json.dumps(sites, ensure_ascii=False)
     html = TEMPLATE.replace("SITES_DATA_HERE", sites_json)
+    html = html.replace("SHEET_CSV_URL_HERE", json.dumps(SHEET_CSV_URL))
     html = html.replace("COUNTY_GEOJSON_HERE", county_geojson)
     html = html.replace("LOGO_DATA_URI_HERE", logo_data_uri)
     html = html.replace("CHARM_LOGO_URI_HERE", charm_data_uri)
