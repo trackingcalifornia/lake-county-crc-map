@@ -26,28 +26,39 @@ GitHub Pages serves the pre-baked `docs/index.html`, not the CSV. Always run
 2026-07-14: Clear Lake Grange stayed "In Setup" live after its CSV status was
 already "Active," because the HTML hadn't been regenerated.)
 
-## Automated sync
+## How schedule data reaches the map (changed 2026-11-05)
 
-`.github/workflows/sync-open-now.yml` runs `sync_open_now.py` on a 15-minute
-cron to pull `date`/`opens_at`/`closes_at` from a published Google Sheet,
-rebuilds `docs/index.html` if `sites.csv` changed, and commits/pushes both.
-GitHub does not reliably honor the 15-minute schedule on low-traffic repos -
-allow a couple of hours before treating it as broken. Full troubleshooting
-steps (workflow logs, Pages build status, manual bypass) are in the README.
+Partners submit a Google Form: first day, optional last day, opening and
+closing time, optional "Open overnight?". "Form Responses 1" -> "DO NOT TOUCH"
+tab (latest submission per site; columns `name, date, opens_at, closes_at,
+last_date, overnight`, filled by FILTER/MAXIFS formulas; `last_date` is form
+column G, `overnight` column H) -> published to web as CSV.
 
-## "Open Now" is computed client-side, not server-side (added 2026-08-14)
+**Primary path: the browser reads the published CSV directly**
+(`loadLiveSchedule()` in `build_map.py`'s JS template, on load and every 5
+min). Google sends CORS headers on both the 307 redirect and the final
+response, so this works from GitHub Pages with no server. Updates land in
+about 5-10 minutes.
 
-There is no manual `open_now` toggle anymore. COAD (Terre/Dan) requested
-fully automatic activation tied to heat events, which have no recurring
-schedule, so each site's `date` + `opens_at`/`closes_at` in the sheet defines
-a one-off activation window. The actual on/off decision is computed live in
-each visitor's browser (`getPacificNow()`/`isOpenNow()`/`refreshOpenNow()` in
-`build_map.py`'s JS template), explicitly in Pacific time via
-`Intl.DateTimeFormat`, re-checked every 60 seconds - not baked into
-`docs/index.html` at build/sync time. This was a deliberate choice over
-computing it server-side in `sync_open_now.py`: a server-side flip would
-still be bounded by the 15-minute (or slower, see incident below) cron
-cadence, which was part of what prompted this change in the first place.
+**Fallback: the GitHub Actions sync** (`.github/workflows/sync-open-now.yml`
+-> `sync_open_now.py`) still copies the same columns into `sites.csv` and
+rebuilds, so the baked-in values are current if Google can't be reached.
+Its "15-minute" cron runs about every 4 hours in practice (measured Oct 2026),
+and GitHub disabled it once for 60 days without commits (re-enabled
+2026-11-05). Neither matters for timeliness anymore.
+
+**All date/time parsing is in the browser** (`parseDay()`, `parseMinutes()`,
+`scheduleFor()`, `isOpenNow()`, `hoursLabel()`). `build_map.py` bakes the raw
+sheet text. Don't reintroduce Python-side parsing; it would drift from the
+live path. `TEMPLATE` is a raw string (`r'''`) because the JS contains regex
+backslashes.
+
+**Rules:** daily mode repeats the hours on each day first..last; overnight
+`Yes` is one continuous window from first-day opening to last-day closing;
+closing earlier than opening is treated as overnight (next morning if no last
+day); `12am` closing = end-of-day midnight; `parseDay()` also accepts a raw
+Sheets serial number (the `last_date` column showed `46332` before being
+formatted as Date).
 
 **Naming/color note:** the CSV's internal `status` value is still literally
 `Active`/`Setup` (unchanged, not partner-facing) - only the *displayed*
@@ -59,9 +70,9 @@ text is green (`#1a6b2e`) to match. Don't be confused by `status ===
 'Active'` checks still in the code; that's the internal value, not what
 Terre/Dan see on the map.
 
-**Known limitation:** the open/close window assumes same-day hours
-(`opens_at` < `closes_at`); an overnight window spanning midnight isn't
-handled and would need `isOpenNow()` extended if that's ever requested.
+**Known limitation:** one schedule per site at a time ("newest form wins").
+Different hours on different days (Mon 9-5, Tue 10-3) still need one
+submission per day, each after the previous day ends.
 
 ## Known incident: 2026-08-06 GitHub Actions/Pages outage
 

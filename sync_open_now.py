@@ -1,9 +1,9 @@
 """
-sync_open_now.py — pull date/opens_at/closes_at from the published Google Sheet
+sync_open_now.py — pull date/opens_at/closes_at/last_date/overnight from the published Google Sheet
 and merge them into sites.csv (matching rows by name; no other field is touched).
-The map itself computes open/closed live from these three fields (see
-build_map.py) -- this script's only job is keeping sites.csv in sync with
-whatever COAD partners entered in the sheet.
+The map reads the Sheet directly in the browser and computes open/closed live
+(see build_map.py); the values this script keeps in sites.csv are baked into
+the page as the fallback if the Sheet cannot be reached.
 
 Usage: python3 sync_open_now.py
 Exits 0 with no output if nothing changed, prints a summary of changes otherwise.
@@ -15,7 +15,7 @@ import sys
 
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTyNMG0g4YTXRx_G13jn7MluwjMowbtgBymPZ5hadQoALn0LhnqqBUuAnMh9F8AVSkW3w3tw9ZxsgH6/pub?gid=0&single=true&output=csv"
 SITES_CSV = "sites.csv"
-SYNC_FIELDS = ["date", "opens_at", "closes_at"]
+SYNC_FIELDS = ["date", "opens_at", "closes_at", "last_date", "overnight"]
 
 
 def _clean_field(value, field_name, site_name):
@@ -37,10 +37,7 @@ def fetch_remote_status():
         name = (row.get("name") or "").strip()
         if not name:
             continue
-        date = _clean_field(row.get("date") or "", "date", name)
-        opens_at = _clean_field(row.get("opens_at") or "", "opens_at", name)
-        closes_at = _clean_field(row.get("closes_at") or "", "closes_at", name)
-        status[name] = (date, opens_at, closes_at)
+        status[name] = tuple(_clean_field(row.get(f) or "", f, name) for f in SYNC_FIELDS)
     return status
 
 
@@ -58,7 +55,7 @@ def main():
         )
 
     # Text-level replace (not csv.writer) so untouched rows keep byte-identical
-    # formatting/quoting -- only the trailing date/opens_at/closes_at values change per row.
+    # formatting/quoting -- only the trailing SYNC_FIELDS values change per row.
     changes = []
     matched_names = set()
     new_lines = [lines[0]]
@@ -68,9 +65,9 @@ def main():
         name = stripped.split(",", 1)[0].strip('"').strip()
         if name in remote_status:
             matched_names.add(name)
-            rest, old_date, old_opens_at, old_closes_at = stripped.rsplit(",", len(SYNC_FIELDS))
+            rest, *old = stripped.rsplit(",", len(SYNC_FIELDS))
             new_vals = remote_status[name]
-            old_vals = (old_date.strip(), old_opens_at.strip(), old_closes_at.strip())
+            old_vals = tuple(v.strip() for v in old)
             if old_vals != new_vals:
                 changes.append((name, old_vals, new_vals))
                 stripped = rest + "," + ",".join(new_vals)
