@@ -7,3 +7,7 @@ __pycache__/
 
 /.quarto/
 **/*.quarto_ipynb
+
+# Partner-facing docs (contain personal contact info; kept out of the public repo)
+docs-for-partners/
+~$*
